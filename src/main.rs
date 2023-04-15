@@ -1,6 +1,6 @@
 use std::io::BufRead;
-use tokio::sync::Mutex;
-use tokio::io::{stdin, AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter, Lines};
+
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -131,8 +131,8 @@ async fn write_stream<W: AsyncWrite + Unpin>(mut stream: W, mut rx: Receiver<Mes
     }
 }#[tokio::main]
 async fn main() {
-    let (tx_input, mut rx_input) = channel::<Message>(32);
-    let (tx_stream, mut rx_stream) = channel::<Message>(32);
+    let (_tx_input, _rx_input) = channel::<Message>(32);
+    let (tx_stream, rx_stream) = channel::<Message>(32);
     let tx_stream_read = tx_stream.clone();
     let tx_stream_input = tx_stream.clone();
 

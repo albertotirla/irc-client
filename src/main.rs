@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc;
-use toml;
+
 #[derive(Debug, Deserialize, Serialize)]
 struct AppConfig {
     nickname: String,
@@ -94,7 +94,7 @@ async fn parse_user_input(line: &str) -> UserCommand {
     }
 }
 async fn handle_user_input(sender: mpsc::Sender<UserCommand>) {
-    use tokio::io::{stdin};
+    use tokio::io::stdin;
     use tokio_util::codec::{FramedRead, LinesCodec};
     let stdin = stdin();
     let mut lines = FramedRead::new(stdin, LinesCodec::new());
@@ -102,7 +102,7 @@ async fn handle_user_input(sender: mpsc::Sender<UserCommand>) {
         if let Ok(input) = line {
             let cmd = parse_user_input(&input).await;
             println!("{:?}", cmd);
-            if let Err(_) = sender.send(cmd).await {
+            if sender.send(cmd).await.is_err() {
                 println!("error sending message");
                 break;
             }
@@ -139,13 +139,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _input_processor = tokio::spawn(handle_user_input(tx));
     while let Some(message) = stream.next().await.transpose()? {
         print!("{}", message);
-        match message.command {
-            Command::PRIVMSG(ref target, ref msg) => {
-                println!("{}: {}", target, msg);
-            }
-            _ => {}
+        if let Command::PRIVMSG(ref target, ref msg) = message.command {
+            println!("{}: {}", target, msg);
         }
     }
+
     let _server_messages_processor = tokio::spawn(async move {
         while let Ok(cmd) = rx.try_recv() {
             match cmd {

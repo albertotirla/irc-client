@@ -17,36 +17,43 @@ struct AppConfig {
 
 async fn read_config() -> AppConfig {
     if Path::new("config.toml").exists() {
+println!("found configuration file");
         let config_str = fs::read_to_string("config.toml").expect("Unable to read config.toml");
         toml::from_str(&config_str).expect("Unable to parse config.toml")
     } else {
         println!("configuration file not found!");
         println!("In the following prompts, you'll be asked to fill in the required information about yourself and your irc network, in order to connect to your server");
+        let mut use_tls = String::new();
         let mut nickname = String::new();
         let mut server = String::new();
-        let mut channels_str = String::new();
+let mut port=String::new();
+        let mut channels = String::new();
 
         println!("Type your nickname, then press enter: ");
         stdin().read_line(&mut nickname).unwrap();
         println!("Type the address of your irc network. This is the domain one connects to specifically with an irc client, for example `irc.libera.chat`: ");
         stdin().read_line(&mut server).unwrap();
+    println!("enter the port for {} (default: 6667):", &server);
+stdin().read_line(&mut port).unwrap();
+        println!("Use TLS? (y/n): ");
+        stdin().read_line(&mut use_tls).unwrap();
         println!("Optionally, type in a list of channels you want to be prejoined to on startup, comma sepparated");
-        stdin().read_line(&mut channels_str).unwrap();
-
+        stdin().read_line(&mut channels).unwrap();
         println!("configuration complete!");
-        let channels = channels_str
+        let channels = channels
             .trim()
             .split(',')
             .map(|channel| channel.trim().to_string())
             .collect();
-
+    let port = port.parse::<u16>().unwrap_or(6667);
+        let use_tls = use_tls.trim().to_lowercase() == "y";
         let config = AppConfig {
             nickname: nickname.trim().to_string(),
             username: None,
             realname: None,
             server: server.trim().to_string(),
-            port: None,
-            use_tls: None,
+            port: Some(port),
+            use_tls: Some(use_tls),
             channels,
         };
 

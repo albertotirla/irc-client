@@ -14,3 +14,9 @@ serde_json = "1.0.95"
 tokio = { version = "1.27.0", features = ["macros", "full"] }
 tokio-util = { version = "0.7.7", features = ["codec"] }
 toml = "0.7.3"
+[profile.release]
+opt-level = "z"
+debug=false
+lto = "fat"
+codegen-units = 1
+panic = "abort"

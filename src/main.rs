@@ -124,9 +124,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         channels: config.channels.clone(),
         ..Config::default()
     };
-
     let mut client = Client::from_config(irc_config).await?;
     client.identify()?;
+
     let (tx, mut rx) = mpsc::channel::<UserCommand>(32);
     let joined_channels = Arc::new(Mutex::new(HashSet::new()));
     let current_channel = Arc::new(Mutex::new(String::new()));
@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         *current_channel.lock().unwrap() = channel.clone();
         client.send_join(channel)?;
     }
-    let _input_processor = tokio::spawn(handle_user_input(tx));
+    let input_processor = tokio::spawn(handle_user_input(tx));
     while let Some(message) = stream.next().await.transpose()? {
         print!("{}", message);
         if let Command::PRIVMSG(ref target, ref msg) = message.command {
@@ -144,8 +144,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let _server_messages_processor = tokio::spawn(async move {
-        while let Ok(cmd) = rx.try_recv() {
+    let server_messages_processor = tokio::spawn(async move {
+    while let Some(cmd) = rx.recv().await {
             match cmd {
                 UserCommand::Join(channel) => {
                     println!("joining channel {}", channel);
@@ -176,6 +176,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
-    //    tokio::try_join!(input_processor, server_messages_processor)?;
+        tokio::join!(input_processor, server_messages_processor)?;
     Ok(())
 }

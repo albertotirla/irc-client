@@ -1,19 +1,16 @@
 [package]
 name = "irc-client"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 futures = "0.3.28"
-irc = "0.15.0"
+irc = "1.1.0"
 serde = { version = "1.0.160", features = ["derive"] }
-serde_derive = "1.0.160"
-serde_json = "1.0.95"
 tokio = { version = "1.27.0", features = ["macros", "full"] }
-tokio-util = { version = "0.7.7", features = ["codec"] }
-toml = "0.7.3"
+toml = "0.9.11"
 [profile.release]
 opt-level = "z"
 debug=false

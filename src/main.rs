@@ -28,7 +28,9 @@ fn read_config() -> AppConfig {
         toml::from_str(&config_str).expect("Unable to parse config.toml")
     } else {
         println!("configuration file not found!");
-        println!("In the following prompts, you'll be asked to fill in the required information about yourself and your irc network, in order to connect to your server");
+        println!(
+            "In the following prompts, you'll be asked to fill in the required information about yourself and your irc network, in order to connect to your server"
+        );
         let mut use_tls = String::new();
         let mut nickname = String::new();
         let mut server = String::new();
@@ -37,13 +39,17 @@ fn read_config() -> AppConfig {
 
         println!("Type your nickname, then press enter: ");
         stdin().read_line(&mut nickname).unwrap();
-        println!("Type the address of your irc network. This is the domain one connects to specifically with an irc client, for example `irc.libera.chat`: ");
+        println!(
+            "Type the address of your irc network. This is the domain one connects to specifically with an irc client, for example `irc.libera.chat`: "
+        );
         stdin().read_line(&mut server).unwrap();
         println!("enter the port for {} (default: 6667):", &server);
         stdin().read_line(&mut port).unwrap();
         println!("Use TLS? (y/n): ");
         stdin().read_line(&mut use_tls).unwrap();
-        println!("Optionally, type in a list of channels you want to be prejoined to on startup, comma sepparated");
+        println!(
+            "Optionally, type in a list of channels you want to be prejoined to on startup, comma sepparated"
+        );
         stdin().read_line(&mut channels).unwrap();
         println!("configuration complete!");
         let channels = channels
@@ -78,6 +84,9 @@ enum UserCommand {
 }
 
 fn parse_user_input(line: &str) -> UserCommand {
+    if !line.starts_with("/") {
+        return UserCommand::Msg(line.trim_end().into());
+    }
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.is_empty() {
         return UserCommand::Unknown;

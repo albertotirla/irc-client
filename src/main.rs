@@ -6,9 +6,9 @@ use std::{
     fs,
     io::stdin,
     path::Path,
-    sync::{mpsc,Arc, Mutex},
+    sync::{Arc, Mutex},
 };
-//use tokio::sync::mpsc;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct AppConfig {
@@ -51,7 +51,7 @@ fn read_config() -> AppConfig {
             .split(',')
             .map(|channel| channel.trim().to_string())
             .collect();
-        let port = port.parse::<u16>().unwrap_or(6667);
+        let port = port.trim_end().parse::<u16>().unwrap_or(6667);
         let use_tls = use_tls.trim().to_lowercase() == "y";
         let config = AppConfig {
             nickname: nickname.trim().to_string(),
@@ -95,15 +95,17 @@ fn parse_user_input(line: &str) -> UserCommand {
     }
 }
 fn handle_user_input(sender: mpsc::Sender<UserCommand>) {
-loop{
-    let stdin = stdin();
-let mut line = String::new();
-stdin.read_line(&mut line).unwrap();
-            let cmd = parse_user_input(&line);
-            println!("{:?}", cmd);
-line.clear();
-           sender.send(cmd).unwrap();
+    loop {
+        let stdin = stdin();
+        let mut line = String::new();
+        stdin.read_line(&mut line).unwrap();
+        let cmd = parse_user_input(&line);
+        println!("{:?}", cmd);
+        line.clear();
+        if sender.blocking_send(cmd).is_err() {
+            break;
         }
+    }
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -121,25 +123,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut client = Client::from_config(irc_config).await?;
     client.identify()?;
-    let (tx, rx) = mpsc::channel::<UserCommand>();
+    let (tx, mut rx) = mpsc::channel::<UserCommand>(32);
     let joined_channels = Arc::new(Mutex::new(HashSet::new()));
     let current_channel = Arc::new(Mutex::new(String::new()));
     let mut stream = client.stream()?;
     for channel in &config.channels {
-joined_channels.lock().unwrap().insert(channel.clone());
-         *current_channel.lock().unwrap() = channel.clone();
+        joined_channels.lock().unwrap().insert(channel.clone());
+        *current_channel.lock().unwrap() = channel.clone();
         client.send_join(channel)?;
     }
     let input_processor = tokio::task::spawn_blocking(|| handle_user_input(tx));
 
-let current_channel_clone = current_channel.clone();
-let joined_channels_clone = joined_channels.clone();
+    let current_channel_clone = current_channel.clone();
+    let joined_channels_clone = joined_channels.clone();
     let server_messages_processor = tokio::spawn(async move {
-        while let Ok(cmd) = rx.recv() {
+        while let Some(cmd) = rx.recv().await {
             match cmd {
                 UserCommand::Join(channel) => {
                     println!("joining channel {}", channel);
-                    joined_channels_clone.lock().unwrap().insert(channel.clone());
+                    joined_channels_clone
+                        .lock()
+                        .unwrap()
+                        .insert(channel.clone());
                     *current_channel_clone.lock().unwrap() = channel.clone();
                     client.send_join(&channel).unwrap();
                 }
@@ -163,7 +168,10 @@ let joined_channels_clone = joined_channels.clone();
                     if joined_channels_clone.lock().unwrap().contains(&channel) {
                         *current_channel_clone.lock().unwrap() = channel;
                     } else {
-                        joined_channels_clone.lock().unwrap().insert(channel.clone());
+                        joined_channels_clone
+                            .lock()
+                            .unwrap()
+                            .insert(channel.clone());
                         *current_channel_clone.lock().unwrap() = channel.clone();
                         client.send_join(&channel).unwrap();
                     }
@@ -177,11 +185,11 @@ let joined_channels_clone = joined_channels.clone();
     while let Some(message) = stream.next().await.transpose()? {
         println!("{}", message);
         if let Command::PRIVMSG(ref target, ref msg) = message.command {
-let target = if let Some(query_target) = message.response_target(){
-query_target}
-else{
-&target
-};
+            let target = if let Some(query_target) = message.response_target() {
+                query_target
+            } else {
+                target
+            };
             println!("{}: {}", target, msg);
         }
     }

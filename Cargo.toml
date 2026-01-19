@@ -8,6 +8,7 @@ edition = "2024"
 [dependencies]
 futures = "0.3.28"
 irc = "1.1.0"
+rustyline = "17.0.2"
 serde = { version = "1.0.160", features = ["derive"] }
 tokio = { version = "1.27.0", features = ["macros", "full"] }
 toml = "0.9.11"

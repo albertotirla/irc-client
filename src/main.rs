@@ -3,12 +3,15 @@ use irc::client::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
+    fmt::Write,
     fs,
     io::stdin,
     path::Path,
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc;
+
+use rustyline::{DefaultEditor, ExternalPrinter, error::ReadlineError};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct AppConfig {
@@ -103,16 +106,29 @@ fn parse_user_input(line: &str) -> UserCommand {
         _ => UserCommand::Unknown,
     }
 }
-fn handle_user_input(sender: mpsc::Sender<UserCommand>) {
+fn handle_user_input(sender: mpsc::Sender<UserCommand>, mut editor: DefaultEditor) {
     loop {
-        let stdin = stdin();
-        let mut line = String::new();
-        stdin.read_line(&mut line).unwrap();
-        let cmd = parse_user_input(&line);
-        println!("{:?}", cmd);
-        line.clear();
-        if sender.blocking_send(cmd).is_err() {
-            break;
+        let next_line_or_error = editor.readline("$");
+        match next_line_or_error {
+            Ok(line) => {
+                let cmd = parse_user_input(&line);
+                if sender.blocking_send(cmd).is_err() {
+                    break;
+                }
+                editor.add_history_entry(line.as_str()).unwrap();
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("CTRL-D");
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
         }
     }
 }
@@ -130,21 +146,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         channels: config.channels.clone(),
         ..Config::default()
     };
-    let mut client = Client::from_config(irc_config).await?;
-    client.identify()?;
+    let client = Arc::new(Mutex::new(Client::from_config(irc_config).await?));
+    client.lock().unwrap().identify()?;
     let (tx, mut rx) = mpsc::channel::<UserCommand>(32);
     let joined_channels = Arc::new(Mutex::new(HashSet::new()));
     let current_channel = Arc::new(Mutex::new(String::new()));
-    let mut stream = client.stream()?;
+    let mut stream = client.lock().unwrap().stream()?;
+    let mut editor = DefaultEditor::new()?;
+    let mut printer = editor.create_external_printer()?;
     for channel in &config.channels {
         joined_channels.lock().unwrap().insert(channel.clone());
         *current_channel.lock().unwrap() = channel.clone();
-        client.send_join(channel)?;
+        client.lock().unwrap().send_join(channel)?;
     }
-    let input_processor = tokio::task::spawn_blocking(|| handle_user_input(tx));
+    let input_processor = tokio::task::spawn_blocking(|| handle_user_input(tx, editor));
 
     let current_channel_clone = current_channel.clone();
     let joined_channels_clone = joined_channels.clone();
+    let client_clone = client.clone();
     let server_messages_processor = tokio::spawn(async move {
         while let Some(cmd) = rx.recv().await {
             match cmd {
@@ -155,20 +174,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap()
                         .insert(channel.clone());
                     *current_channel_clone.lock().unwrap() = channel.clone();
-                    client.send_join(&channel).unwrap();
+                    client_clone.lock().unwrap().send_join(&channel).unwrap();
                 }
 
                 UserCommand::Query(person) => {
                     println!("opening private message with {}", person);
                     joined_channels_clone.lock().unwrap().insert(person.clone());
                     *current_channel_clone.lock().unwrap() = person.clone();
-                    client.send_privmsg(&person, "").unwrap();
+                    //                    client.send_privmsg(&person, "").unwrap();
                 }
 
                 UserCommand::Msg(message) => {
                     let target = current_channel_clone.lock().unwrap().clone();
                     if !target.is_empty() {
-                        client.send_privmsg(&target, &message).unwrap();
+                        client_clone
+                            .lock()
+                            .unwrap()
+                            .send_privmsg(&target, &message)
+                            .unwrap();
                     } else {
                         println!("No channel currently selected.");
                     }
@@ -182,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .unwrap()
                             .insert(channel.clone());
                         *current_channel_clone.lock().unwrap() = channel.clone();
-                        client.send_join(&channel).unwrap();
+                        client_clone.lock().unwrap().send_join(&channel).unwrap();
                     }
                 }
                 UserCommand::Unknown => {
@@ -192,17 +215,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     while let Some(message) = stream.next().await.transpose()? {
-        println!("{}", message);
-        if let Command::PRIVMSG(ref target, ref msg) = message.command {
-            let target = if let Some(query_target) = message.response_target() {
-                query_target
-            } else {
-                target
-            };
-            println!("{}: {}", target, msg);
+        let prefix = message.prefix;
+        match message.command {
+            Command::PRIVMSG(target, msg) => {
+                let target = if let Some(Prefix::Nickname(query_target, _, _)) = prefix {
+                    query_target
+                } else {
+                    target
+                };
+                printer.print(format!("{}: {}", target, msg))?;
+            }
+            Command::UserMODE(nick, modes) => {
+                let mut mode_message_accumulator = String::new();
+                if nick == client.lock().unwrap().current_nickname() {
+                    writeln!(mode_message_accumulator, "you have the following modes:")?;
+                } else {
+                    writeln!(
+                        mode_message_accumulator,
+                        "{} has the following modes:",
+                        nick
+                    )?;
+                }
+                for mode in modes {
+                    writeln!(mode_message_accumulator, "{}", mode)?;
+                }
+                printer.print(mode_message_accumulator)?;
+            }
+            Command::NOTICE(_, message) => printer.print(message)?,
+            Command::MOTD(Some(motd)) => printer.print(format!("MOTD: {}", motd))?,
+            Command::ERROR(msg) => printer.print(format!("error: {}", msg))?,
+            command => printer.print(format!("unhandled command {:?}", command))?,
         }
     }
-
     tokio::try_join!(input_processor, server_messages_processor)?;
     Ok(())
 }

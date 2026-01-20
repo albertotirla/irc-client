@@ -51,14 +51,20 @@ fn read_config() -> AppConfig {
         println!("Use TLS? (y/n): ");
         stdin().read_line(&mut use_tls).unwrap();
         println!(
-            "Optionally, type in a list of channels you want to be prejoined to on startup, comma sepparated"
+            "Optionally, type in a list of channels you want to be prejoined to on startup, comma separated"
         );
         stdin().read_line(&mut channels).unwrap();
         println!("configuration complete!");
         let channels = channels
             .trim()
             .split(',')
-            .map(|channel| channel.trim().to_string())
+            .filter_map(|channel| {
+                if channel.is_empty() {
+                    None
+                } else {
+                    Some(channel.trim().to_string())
+                }
+            })
             .collect();
         let port = port.trim_end().parse::<u16>().unwrap_or(6667);
         let use_tls = use_tls.trim().to_lowercase() == "y";
@@ -154,11 +160,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = client.lock().unwrap().stream()?;
     let mut editor = DefaultEditor::new()?;
     let mut printer = editor.create_external_printer()?;
-    for channel in &config.channels {
-        joined_channels.lock().unwrap().insert(channel.clone());
-        *current_channel.lock().unwrap() = channel.clone();
-        client.lock().unwrap().send_join(channel)?;
-    }
     let input_processor = tokio::task::spawn_blocking(|| handle_user_input(tx, editor));
 
     let current_channel_clone = current_channel.clone();

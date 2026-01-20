@@ -20,7 +20,6 @@ struct AppConfig {
     realname: Option<String>,
     server: String,
     port: Option<u16>,
-    use_tls: Option<bool>,
     channels: Vec<String>,
 }
 
@@ -34,7 +33,6 @@ fn read_config() -> AppConfig {
         println!(
             "In the following prompts, you'll be asked to fill in the required information about yourself and your irc network, in order to connect to your server"
         );
-        let mut use_tls = String::new();
         let mut nickname = String::new();
         let mut server = String::new();
         let mut port = String::new();
@@ -46,10 +44,8 @@ fn read_config() -> AppConfig {
             "Type the address of your irc network. This is the domain one connects to specifically with an irc client, for example `irc.libera.chat`: "
         );
         stdin().read_line(&mut server).unwrap();
-        println!("enter the port for {} (default: 6667):", &server);
+        println!("enter the port for {} (default: 6697):", &server);
         stdin().read_line(&mut port).unwrap();
-        println!("Use TLS? (y/n): ");
-        stdin().read_line(&mut use_tls).unwrap();
         println!(
             "Optionally, type in a list of channels you want to be prejoined to on startup, comma separated"
         );
@@ -66,15 +62,13 @@ fn read_config() -> AppConfig {
                 }
             })
             .collect();
-        let port = port.trim_end().parse::<u16>().unwrap_or(6667);
-        let use_tls = use_tls.trim().to_lowercase() == "y";
+        let port = port.trim_end().parse::<u16>().unwrap_or(6697);
         let config = AppConfig {
             nickname: nickname.trim().to_string(),
             username: None,
             realname: None,
             server: server.trim().to_string(),
             port: Some(port),
-            use_tls: Some(use_tls),
             channels,
         };
 
@@ -148,9 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         realname: config.realname,
         server: Some(config.server),
         port: config.port,
-        use_tls: config.use_tls,
+        use_tls: Some(true),
         channels: config.channels.clone(),
-        ..Config::default()
+        ..Default::default()
     };
     let client = Arc::new(Mutex::new(Client::from_config(irc_config).await?));
     client.lock().unwrap().identify()?;
